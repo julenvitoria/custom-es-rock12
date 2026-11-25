@@ -1,0 +1,227 @@
+# Builds retro-go_update.bin from sylverb's Retro-Go SD (external_cores by
+# default) with this repo's files on top:
+#   Core/Src/retro-go/i18n/rg_i18n_es_es.c        (Spanish translation)
+#   Core/Inc/retro-go/fonts/font_cp1252_rock12.h  (rock12 font)
+# Same builder image and feature flags as the official release: SD card,
+# bank 2, lean package (no installer homebrew).
+#
+# Runs every day and only builds when there is something new: a new upstream
+# commit, or a new commit in this repo. Each build is published as a GitHub
+# release whose tag names both commits, with retro-go_update.bin attached.
+# It can also be run by hand from Actions -> "custom update" -> Run workflow.
+name: custom update
+
+on:
+  schedule:
+    - cron: '23 5 * * *'   # every day at 05:23 UTC
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "sylverb branch, tag or commit to build (e.g. external_cores, v2.0.0-rc2)"
+        default: external_cores
+        type: string
+      force:
+        description: "Build and publish even if this combination was already released"
+        default: false
+        type: boolean
+      builder_image:
+        description: "retro-go-sd builder image"
+        default: sylverb/retro-go-sd-builder:v1.5
+        type: string
+
+permissions:
+  contents: write   # create the release
+
+concurrency:
+  group: custom-update
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: sylverb/game-and-watch-retro-go-sd
+  # Scheduled runs have no inputs: fall back to the defaults.
+  UPSTREAM_REF: ${{ inputs.upstream_ref || 'external_cores' }}
+  BUILDER_IMAGE: ${{ inputs.builder_image || 'sylverb/retro-go-sd-builder:v1.5' }}
+  CUSTOM_FILES: >-
+    Core/Src/retro-go/i18n/rg_i18n_es_es.c
+    Core/Inc/retro-go/fonts/font_cp1252_rock12.h
+  # Keep in sync with COMMON_FLAGS in the official flasher-artifacts.yml.
+  # Language blobs depend on CHEAT_CODES and INTFLASH_BANK, so these must
+  # match the firmware.
+  FLAGS: >-
+    SD_CARD=1
+    INTFLASH_BANK=2
+    COVERFLOW=1
+    CHEAT_CODES=1
+    MAX_CHEAT_CODES=13
+    ENABLE_SCREENSHOT=1
+    SHARED_HIBERNATE_SAVESTATE=1
+    DISABLE_SPLASH_SCREEN=1
+    REMOTE_INPUT=1
+    ZH_CN=1
+    ZH_TW=1
+    KO_KR=1
+    JA_JP=1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout custom files (this repo)
+        uses: actions/checkout@v5
+        with:
+          path: custom
+
+      - name: Check for something new
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/$UPSTREAM_REPO"
+          ref="$UPSTREAM_REF"
+          # Resolve a branch, an annotated or lightweight tag, or take a
+          # commit id as given.
+          sha=$(git ls-remote "$url" "refs/heads/$ref" | cut -f1)
+          [ -n "$sha" ] || sha=$(git ls-remote "$url" "refs/tags/$ref^{}" | cut -f1)
+          [ -n "$sha" ] || sha=$(git ls-remote "$url" "refs/tags/$ref" | cut -f1)
+          [ -n "$sha" ] || sha="$ref"
+          custom_sha=$(git -C custom rev-parse HEAD)
+          tag="es-rock12-${sha:0:7}-${custom_sha:0:7}"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            if [ "$FORCE" = "true" ]; then
+              echo "build=true" >> "$GITHUB_OUTPUT"
+              echo "Release $tag exists; force requested, rebuilding."
+            else
+              echo "build=false" >> "$GITHUB_OUTPUT"
+              echo "Nothing new: release $tag already exists." | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "New combination, building $tag."
+          fi
+
+      - name: Checkout upstream ${{ env.UPSTREAM_REF }}
+        if: steps.check.outputs.build == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ steps.check.outputs.sha }}
+          path: src
+          submodules: recursive
+          # Full history + tags so `git describe` gives the firmware a real
+          # version (e.g. v2.0.0-rc2-1-gabc1234).
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Apply custom files
+        if: steps.check.outputs.build == 'true'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          echo "UPSTREAM_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "UPSTREAM_VERSION=$(git describe --tags --always)" >> "$GITHUB_ENV"
+          # The font must keep the section marker upstream uses; otherwise the
+          # build would not extract it to fonts/cp1252_rock12.bin.
+          up_marker=$(grep -o 'FONT_DATA[A-Z0-9_]*' Core/Inc/retro-go/fonts/font_cp1252_rock12.h | head -1)
+          my_marker=$(grep -o 'FONT_DATA[A-Z0-9_]*' ../custom/Core/Inc/retro-go/fonts/font_cp1252_rock12.h | head -1)
+          if [ "$up_marker" != "$my_marker" ]; then
+            echo "::error::Upstream font uses section marker '$up_marker' but the custom font uses '$my_marker'. Update the custom font header."
+            exit 1
+          fi
+          for f in $CUSTOM_FILES; do
+            [ -f "$f" ] || { echo "::error::$f no longer exists upstream"; exit 1; }
+            cp "../custom/$f" "$f"
+          done
+          # Commit locally so the version string names this build cleanly
+          # instead of ending in a "dirty" marker. Nothing is pushed.
+          if ! git diff --quiet -- $CUSTOM_FILES; then
+            git -c user.name="custom-build" -c user.email="custom-build@localhost" \
+              commit -q -m "custom Spanish translation and rock12 font" -- $CUSTOM_FILES
+          fi
+          echo "VERSION=$(git describe --tags --always)" >> "$GITHUB_ENV"
+
+      - name: Build firmware and SD content
+        if: steps.check.outputs.build == 'true'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
+            "$BUILDER_IMAGE" \
+            bash -l -c "set -e
+              make -j\$(nproc) $FLAGS create_sd_data build/gw_retro_go_intflash.bin" \
+            2>&1 | tee ../build.log
+
+      - name: Build updater
+        if: steps.check.outputs.build == 'true'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
+            "$BUILDER_IMAGE" \
+            bash -l -c 'make -j$(nproc) -C external/firmware_update'
+
+      - name: Pack retro-go_update.bin
+        if: steps.check.outputs.build == 'true'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          mkdir -p ../_out
+          python3 scripts/flasher/make_update_package.py \
+            --updater external/firmware_update/build/firmware_update.bin \
+            --content sd_content \
+            --output ../_out/retro-go_update.bin
+          es_stats=$(grep -A1 'rg_i18n_es_es.c ->' ../build.log | tail -1 | sed 's/^ *//')
+          {
+            echo "version:  ${VERSION}"
+            echo "upstream: ${UPSTREAM_REPO}@${UPSTREAM_SHA} (${UPSTREAM_REF})"
+            echo "custom:   ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}"
+            echo "es_es:    ${es_stats}"
+            echo "flags:    ${FLAGS}"
+          } > ../_out/version.txt
+          cat ../_out/version.txt
+          {
+            echo "### retro-go_update.bin"
+            echo '```'
+            cat ../_out/version.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        if: steps.check.outputs.build == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: retro-go_update
+          path: _out/
+          if-no-files-found: error
+
+      - name: Publish release
+        if: steps.check.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.check.outputs.tag }}
+          EXISTS: ${{ steps.check.outputs.exists }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Retro-Go SD **${UPSTREAM_VERSION}** de sylverb con la traducción española y la fuente rock12 de este repo."
+            echo
+            echo "Instalación: copia \`retro-go_update.bin\` a la raíz de la SD y enciende la consola."
+            echo
+            echo '```'
+            cat _out/version.txt
+            echo '```'
+          } > notes.md
+          if [ "$EXISTS" = "true" ]; then
+            gh release upload "$TAG" _out/retro-go_update.bin _out/version.txt \
+              -R "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --notes-file notes.md
+          else
+            gh release create "$TAG" _out/retro-go_update.bin _out/version.txt \
+              -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "${UPSTREAM_VERSION} + es-rock12" --notes-file notes.md --latest
+          fi
