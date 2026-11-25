@@ -1,16 +1,22 @@
-# Builds retro-go_update.bin from sylverb's Retro-Go SD (external_cores by
-# default) with this repo's files on top:
+# Builds Retro-Go SD from sylverb's repo (external_cores by default) with this
+# repo's changes on top, in two variants published together:
+#
+#   retro-go_update_reposo.bin   custom files + patches/*.patch
+#                                (power button = normal sleep, STOP2)
+#   retro-go_update_apagado.bin  the above + patches/apagado/*.patch
+#                                (power button = full power-off, STANDBY)
+#
+# Custom files copied over upstream:
 #   Core/Src/retro-go/i18n/rg_i18n_es_es.c        (Spanish translation)
 #   Core/Inc/retro-go/fonts/font_cp1252_rock12.h  (rock12 font)
-#   patches/*.patch                               (applied with git apply,
-#                                                  e.g. power button -> STANDBY)
+#
 # Same builder image and feature flags as the official release: SD card,
 # bank 2, lean package (no installer homebrew).
 #
 # Runs every day and only builds when there is something new: a new upstream
 # commit, or a new commit in this repo. Each build is published as a GitHub
-# release whose tag names both commits, with retro-go_update.bin attached.
-# It can also be run by hand from Actions -> "custom update" -> Run workflow.
+# release whose tag names both commits. It can also be run by hand from
+# Actions -> "custom update" -> Run workflow.
 name: custom update
 
 on:
@@ -120,7 +126,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Apply custom files
+      - name: Apply custom files and common patches
         if: steps.check.outputs.build == 'true'
         working-directory: src
         run: |
@@ -139,34 +145,13 @@ jobs:
             [ -f "$f" ] || { echo "::error::$f no longer exists upstream"; exit 1; }
             cp "../custom/$f" "$f"
           done
-          # Code changes that are not whole files live as patches.
-          for p in ../custom/patches/*.patch; do
-            [ -e "$p" ] || continue
-            if ! git apply --check "$p"; then
-              echo "::error::$(basename "$p") no longer applies to upstream; update it."
-              exit 1
-            fi
-            git apply "$p"
-            echo "Applied $(basename "$p")"
-          done
+          ../custom/.github/scripts/apply_patches.sh ../custom/patches
           # Commit locally so the version string names this build cleanly
           # instead of ending in a "dirty" marker. Nothing is pushed.
           if ! git diff --quiet; then
             git -c user.name="custom-build" -c user.email="custom-build@localhost" \
-              commit -q -a -m "custom Spanish translation, rock12 font and patches"
+              commit -q -a -m "custom Spanish translation, rock12 font and common patches"
           fi
-          echo "VERSION=$(git describe --tags --always)" >> "$GITHUB_ENV"
-
-      - name: Build firmware and SD content
-        if: steps.check.outputs.build == 'true'
-        working-directory: src
-        run: |
-          set -euo pipefail
-          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
-            "$BUILDER_IMAGE" \
-            bash -l -c "set -e
-              make -j\$(nproc) $FLAGS create_sd_data build/gw_retro_go_intflash.bin" \
-            2>&1 | tee ../build.log
 
       - name: Build updater
         if: steps.check.outputs.build == 'true'
@@ -177,27 +162,46 @@ jobs:
             "$BUILDER_IMAGE" \
             bash -l -c 'make -j$(nproc) -C external/firmware_update'
 
-      - name: Pack retro-go_update.bin
+      - name: Build variants
         if: steps.check.outputs.build == 'true'
         working-directory: src
         run: |
           set -euo pipefail
           mkdir -p ../_out
-          python3 scripts/flasher/make_update_package.py \
-            --updater external/firmware_update/build/firmware_update.bin \
-            --content sd_content \
-            --output ../_out/retro-go_update.bin
-          es_stats=$(grep -A1 'rg_i18n_es_es.c ->' ../build.log | tail -1 | sed 's/^ *//')
+          : > ../_out/version.txt
+          for variant in reposo apagado; do
+            echo "::group::Variant $variant"
+            if [ "$variant" = apagado ]; then
+              ../custom/.github/scripts/apply_patches.sh ../custom/patches/apagado
+              if ! git diff --quiet; then
+                git -c user.name="custom-build" -c user.email="custom-build@localhost" \
+                  commit -q -a -m "variant apagado patches"
+              fi
+            fi
+            docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
+              "$BUILDER_IMAGE" \
+              bash -l -c "set -e
+                make -j\$(nproc) $FLAGS create_sd_data build/gw_retro_go_intflash.bin" \
+              2>&1 | tee "../build-$variant.log"
+            python3 scripts/flasher/make_update_package.py \
+              --updater external/firmware_update/build/firmware_update.bin \
+              --content sd_content \
+              --output "../_out/retro-go_update_$variant.bin"
+            # The second variant is an incremental build: the language blob is
+            # already up to date and not regenerated, so keep the first stats.
+            stats=$({ grep -A1 'rg_i18n_es_es.c ->' "../build-$variant.log" || true; } | tail -1 | sed 's/^ *//')
+            if [ -n "$stats" ]; then es_stats=$stats; fi
+            echo "retro-go_update_$variant.bin: $(git describe --tags --always) | es_es: ${es_stats:-unknown}" >> ../_out/version.txt
+            echo "::endgroup::"
+          done
           {
-            echo "version:  ${VERSION}"
             echo "upstream: ${UPSTREAM_REPO}@${UPSTREAM_SHA} (${UPSTREAM_REF})"
             echo "custom:   ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}"
-            echo "es_es:    ${es_stats}"
             echo "flags:    ${FLAGS}"
-          } > ../_out/version.txt
+          } >> ../_out/version.txt
           cat ../_out/version.txt
           {
-            echo "### retro-go_update.bin"
+            echo "### Retro-Go SD ${UPSTREAM_VERSION} + es-rock12"
             echo '```'
             cat ../_out/version.txt
             echo '```'
@@ -219,24 +223,32 @@ jobs:
           EXISTS: ${{ steps.check.outputs.exists }}
         run: |
           set -euo pipefail
-          {
-            echo "Retro-Go SD **${UPSTREAM_VERSION}** de sylverb con la traducción española y la fuente rock12 de este repo."
-            for p in custom/patches/*.patch; do
-              if [ -e "$p" ]; then echo "- Parche aplicado: \`$(basename "$p")\`"; fi
+          list_patches() {
+            for p in "$1"/*.patch; do
+              if [ -e "$p" ]; then echo "  - \`$(basename "$p")\`"; fi
             done
+          }
+          {
+            echo "Retro-Go SD **${UPSTREAM_VERSION}** de sylverb con la traducción española y la fuente rock12 de este repo, en dos variantes:"
             echo
-            echo "Instalación: copia \`retro-go_update.bin\` a la raíz de la SD y enciende la consola."
+            echo "- **\`retro-go_update_reposo.bin\`**: el botón power deja la consola en reposo (STOP2), como el firmware original."
+            list_patches custom/patches
+            echo "- **\`retro-go_update_apagado.bin\`**: el botón power apaga del todo la consola (STANDBY); al encender recupera la partida."
+            list_patches custom/patches
+            list_patches custom/patches/apagado
+            echo
+            echo "Instalación: descarga la variante que quieras, **renómbrala a \`retro-go_update.bin\`**, cópiala a la raíz de la SD y enciende la consola."
             echo
             echo '```'
             cat _out/version.txt
             echo '```'
           } > notes.md
+          files=(_out/retro-go_update_reposo.bin _out/retro-go_update_apagado.bin _out/version.txt)
           if [ "$EXISTS" = "true" ]; then
-            gh release upload "$TAG" _out/retro-go_update.bin _out/version.txt \
-              -R "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$TAG" "${files[@]}" -R "$GITHUB_REPOSITORY" --clobber
             gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --notes-file notes.md
           else
-            gh release create "$TAG" _out/retro-go_update.bin _out/version.txt \
+            gh release create "$TAG" "${files[@]}" \
               -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "${UPSTREAM_VERSION} + es-rock12" --notes-file notes.md --latest
           fi
