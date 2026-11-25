@@ -2,6 +2,8 @@
 # default) with this repo's files on top:
 #   Core/Src/retro-go/i18n/rg_i18n_es_es.c        (Spanish translation)
 #   Core/Inc/retro-go/fonts/font_cp1252_rock12.h  (rock12 font)
+#   patches/*.patch                               (applied with git apply,
+#                                                  e.g. power button -> STANDBY)
 # Same builder image and feature flags as the official release: SD card,
 # bank 2, lean package (no installer homebrew).
 #
@@ -137,11 +139,21 @@ jobs:
             [ -f "$f" ] || { echo "::error::$f no longer exists upstream"; exit 1; }
             cp "../custom/$f" "$f"
           done
+          # Code changes that are not whole files live as patches.
+          for p in ../custom/patches/*.patch; do
+            [ -e "$p" ] || continue
+            if ! git apply --check "$p"; then
+              echo "::error::$(basename "$p") no longer applies to upstream; update it."
+              exit 1
+            fi
+            git apply "$p"
+            echo "Applied $(basename "$p")"
+          done
           # Commit locally so the version string names this build cleanly
           # instead of ending in a "dirty" marker. Nothing is pushed.
-          if ! git diff --quiet -- $CUSTOM_FILES; then
+          if ! git diff --quiet; then
             git -c user.name="custom-build" -c user.email="custom-build@localhost" \
-              commit -q -m "custom Spanish translation and rock12 font" -- $CUSTOM_FILES
+              commit -q -a -m "custom Spanish translation, rock12 font and patches"
           fi
           echo "VERSION=$(git describe --tags --always)" >> "$GITHUB_ENV"
 
@@ -209,6 +221,9 @@ jobs:
           set -euo pipefail
           {
             echo "Retro-Go SD **${UPSTREAM_VERSION}** de sylverb con la traducción española y la fuente rock12 de este repo."
+            for p in custom/patches/*.patch; do
+              if [ -e "$p" ]; then echo "- Parche aplicado: \`$(basename "$p")\`"; fi
+            done
             echo
             echo "Instalación: copia \`retro-go_update.bin\` a la raíz de la SD y enciende la consola."
             echo

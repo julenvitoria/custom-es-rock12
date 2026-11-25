@@ -9,6 +9,14 @@ y un workflow que compila el `retro-go_update.bin` con ellos.
 | `Core/Src/retro-go/i18n/rg_i18n_es_es.c` | la traducción española |
 | `Core/Inc/retro-go/fonts/font_cp1252_rock12.h` | la fuente rock12 (cp1252) |
 
+Además se aplican los parches de `patches/`:
+
+| Parche | Qué cambia |
+|---|---|
+| `power-button-standby.patch` | El botón power (y el reposo por inactividad o desde el menú de pausa) apaga del todo la consola (STANDBY, ~0,01 mA) en vez de dejarla en reposo (STOP2). Antes guarda la partida; al encender arranca desde cero y la recupera. |
+
+Para quitar un parche, borra su archivo de `patches/`.
+
 ## Descargar
 
 Cada compilación se publica en [Releases](../../releases). Descarga
@@ -28,7 +36,8 @@ El workflow `custom update` (`.github/workflows/build-custom-update.yml`):
 - El resumen de cada ejecución indica de qué commit de sylverb sale y cuántos
   textos en español faltan y aparecen en inglés.
 - Se detiene con un error claro si sylverb cambia la marca de sección de la
-  fuente (`FONT_DATA_CP1252_ROCK12`) o elimina alguno de los archivos.
+  fuente (`FONT_DATA_CP1252_ROCK12`), elimina alguno de los archivos o cambia
+  el código de forma que un parche ya no encaja.
 
 Para cambiar la traducción o la fuente, edita los archivos en este repo: la
 siguiente ejecución compilará con ellos.

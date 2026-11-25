@@ -1,0 +1,22 @@
+diff --git a/Core/Src/porting/odroid_system.c b/Core/Src/porting/odroid_system.c
+index 5c43b60..aaa762a 100644
+--- a/Core/Src/porting/odroid_system.c
++++ b/Core/Src/porting/odroid_system.c
+@@ -673,7 +673,16 @@ static void odroid_system_sleep_internal(system_sleep_flags_t flags, sleep_pre_w
+     gui_save_current_tab();
+ 
+     if (flags & SLEEP_ENTER_SLEEP) {
+-        GW_EnterDeepSleep(false, pre_wakeup_callback, &odroid_system_sleep_post_wakeup_handler);
++        /* Custom build: every sleep (power button, idle timeout, pause-menu
++         * sleep) is a full power-off (STANDBY, ~0.01 mA) instead of STOP2.
++         * Every SLEEP_ENTER_SLEEP caller has already saved SRAM and, in a
++         * game, the savestate; run the core's shutdown callback as the menu
++         * "Power off" does, then enter STANDBY. The next power press
++         * cold-boots and resumes the game from its savestate. */
++        (void)pre_wakeup_callback;
++        (void)odroid_system_sleep_post_wakeup_handler;
++        odroid_system_shutdown();
++        GW_EnterDeepSleep(true, NULL, NULL);
+     } else if (flags & SLEEP_ENTER_STANDBY) {
+         GW_EnterDeepSleep(true, NULL, NULL);
+     }
