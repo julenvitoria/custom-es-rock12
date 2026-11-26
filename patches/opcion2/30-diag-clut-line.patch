@@ -1,0 +1,68 @@
+From 110304d8f4bafa53f49efbc9edacbd4848b10818 Mon Sep 17 00:00:00 2001
+From: julenvitoria <julenvitoria@hotmail.es>
+Date: Thu, 26 Nov 2026 23:05:59 +0100
+Subject: [PATCH] TEMP: LUT8 CLUT diagnostic line under the header (test build
+ only)
+
+---
+ Core/Inc/gw_lcd.h                 |  1 +
+ Core/Src/gw_lcd.c                 | 11 +++++++++++
+ Core/Src/porting/odroid_overlay.c |  8 ++++++++
+ 3 files changed, 20 insertions(+)
+
+diff --git a/Core/Inc/gw_lcd.h b/Core/Inc/gw_lcd.h
+index 761aed7..92b297f 100644
+--- a/Core/Inc/gw_lcd.h
++++ b/Core/Inc/gw_lcd.h
+@@ -162,6 +162,7 @@ void lcd_convert_lut8_to_rgb565(const uint8_t *src, uint16_t *dst, size_t count,
+ #define LCD_OVERLAY_CLUT_GRAY_DARK 6  /* ~12% gray — empty level boxes */
+ #define LCD_OVERLAY_CLUT_BATT_OK   7  /* battery bars (MARIO_BATT_GREEN) */
+ #define LCD_OVERLAY_CLUT_BATT_LOW  8  /* last battery bar (MARIO_BATT_CRITICAL) */
++void lcd_debug_clut_line(char *buf, size_t n, uint16_t rgb565); /* TEMP diag */
+ 
+ /* Register the overlay theme colors (RGB888 0x00RRGGBB). Saves them for
+  * lcd_pack_color() exact-match and for begin/end. When overlay slots sit
+diff --git a/Core/Src/gw_lcd.c b/Core/Src/gw_lcd.c
+index 6fdc59d..4cb033f 100644
+--- a/Core/Src/gw_lcd.c
++++ b/Core/Src/gw_lcd.c
+@@ -889,6 +889,17 @@ void lcd_overlay_clut_end_all(void)
+   }
+ }
+ 
++/* TEMPORARY DIAGNOSTIC (custom test build only): one-line summary of the
++ * LUT8 CLUT state as seen when packing rgb565. */
++void lcd_debug_clut_line(char *buf, size_t n, uint16_t rgb565)
++{
++  uint16_t idx = lcd_pack_color(rgb565);
++  snprintf(buf, n, "P%d V%d N%u S%d T%d I%u %06lX",
++           lcd_get_mode() == LCD_MODE_LUT8, overlay_clut_live,
++           (unsigned)overlay_clut_count, clut_cart_span(), clut_hw_total(),
++           (unsigned)idx, (unsigned long)(active_clut[idx & 0xFF] & 0xFFFFFFu));
++}
++
+ uint16_t lcd_pack_color(uint16_t rgb565)
+ {
+   if (current_lcd_mode != LCD_MODE_LUT8) return rgb565;
+diff --git a/Core/Src/porting/odroid_overlay.c b/Core/Src/porting/odroid_overlay.c
+index 55ab83c..913b2da 100644
+--- a/Core/Src/porting/odroid_overlay.c
++++ b/Core/Src/porting/odroid_overlay.c
+@@ -361,6 +361,14 @@ void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int
+ 
+     /* Clear behind the icon so theme bg does not show through the hollow body. */
+     odroid_overlay_draw_fill_rect(x_pos, y_pos, MARIO_BATT_W, MARIO_BATT_H, color_empty);
++
++    /* TEMPORARY DIAGNOSTIC (custom test build only, not for upstream): LUT8
++     * CLUT state for the green bar colour, drawn under the header. */
++    if (lcd_get_mode() == LCD_MODE_LUT8) {
++        char dbg[48];
++        lcd_debug_clut_line(dbg, sizeof(dbg), MARIO_BATT_GREEN);
++        odroid_overlay_draw_text_line(4, y_pos + 18, 312, dbg, C_WHITE, C_BLACK);
++    }
+     draw_mario_battery_outline(x_pos, y_pos, C_WHITE);
+ 
+     switch (battery_state)
+-- 
+2.43.0
+

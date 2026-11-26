@@ -1,0 +1,66 @@
+From 146b1b55ad1588fd621ac2bedada85fea27a4709 Mon Sep 17 00:00:00 2001
+From: julenvitoria <julenvitoria@hotmail.es>
+Date: Thu, 26 Nov 2026 12:51:00 +0100
+Subject: [PATCH] overlay: give the battery bar colours their own LUT8 CLUT
+ slots
+
+The header battery icon draws its bars in fixed colours (MARIO_BATT_GREEN
+0x07C0, MARIO_BATT_CRITICAL 0xD940), but the LUT8 overlay CLUT only holds
+the four theme colours plus white and two grays. Under a LUT8 core
+lcd_pack_color() nearest-matches the bars, and with a green theme the
+green lands on the header colour itself, so the icon shows as an empty
+outline: in the "Caching game file" screen once the core has switched
+the LCD to LUT8, and in the pause menu header (seen with ScummVM and
+NXEngine). Before the core starts (RGB565) the icon is fine.
+
+Add two overlay slots for the bar colours, with values expanded the way
+lcd_pack_color() decodes RGB565 so the lookup is an exact match.
+---
+ Core/Inc/gw_lcd.h       | 7 +++++--
+ Core/Src/retro-go/gui.c | 8 ++++++++
+ 2 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/Core/Inc/gw_lcd.h b/Core/Inc/gw_lcd.h
+index 65e27da..761aed7 100644
+--- a/Core/Inc/gw_lcd.h
++++ b/Core/Inc/gw_lcd.h
+@@ -153,12 +153,15 @@ void lcd_convert_lut8_to_rgb565(const uint8_t *src, uint16_t *dst, size_t count,
+  * No darkened twins are stored for the menu — menu pixels are drawn
+  * AFTER odroid_overlay_darken_all(), so they never need a "darkened
+  * menu pixel" lookup.
+- * MAX is theme (4) + HUD white + panel gray + empty-bar darker gray. */
++ * MAX is theme (4) + HUD white + panel gray + empty-bar darker gray +
++ * the two battery bar colours. */
+ #define LCD_OVERLAY_CLUT_BASE  0x40   /* index 64 */
+-#define LCD_OVERLAY_CLUT_MAX   7
++#define LCD_OVERLAY_CLUT_MAX   9
+ #define LCD_OVERLAY_CLUT_WHITE 4      /* pure white — volume/brightness bars */
+ #define LCD_OVERLAY_CLUT_GRAY  5      /* ~25% gray — HUD panel fallback */
+ #define LCD_OVERLAY_CLUT_GRAY_DARK 6  /* ~12% gray — empty level boxes */
++#define LCD_OVERLAY_CLUT_BATT_OK   7  /* battery bars (MARIO_BATT_GREEN) */
++#define LCD_OVERLAY_CLUT_BATT_LOW  8  /* last battery bar (MARIO_BATT_CRITICAL) */
+ 
+ /* Register the overlay theme colors (RGB888 0x00RRGGBB). Saves them for
+  * lcd_pack_color() exact-match and for begin/end. When overlay slots sit
+diff --git a/Core/Src/retro-go/gui.c b/Core/Src/retro-go/gui.c
+index 0882b58..6425b60 100644
+--- a/Core/Src/retro-go/gui.c
++++ b/Core/Src/retro-go/gui.c
+@@ -201,6 +201,14 @@ void gui_apply_colors_to_overlay_clut(void)
+     rgb888[LCD_OVERLAY_CLUT_WHITE] = 0x00FFFFFFu;
+     rgb888[LCD_OVERLAY_CLUT_GRAY]  = 0x00404040u;
+     rgb888[LCD_OVERLAY_CLUT_GRAY_DARK] = 0x00202020u;
++    /* Battery bars use fixed colours, not theme ones. Without their own
++     * slots a LUT8 core nearest-matches them to the cart palette, and the
++     * green often lands on the theme's header colour: the bars vanish and
++     * the header icon looks empty. Keep in sync with MARIO_BATT_GREEN /
++     * MARIO_BATT_CRITICAL in odroid_overlay.c (RGB565 0x07C0 / 0xD940),
++     * expanded the way lcd_pack_color() does so the lookup is exact. */
++    rgb888[LCD_OVERLAY_CLUT_BATT_OK]  = 0x0000FA00u;
++    rgb888[LCD_OVERLAY_CLUT_BATT_LOW] = 0x00DE2800u;
+     lcd_set_overlay_clut(rgb888, LCD_OVERLAY_CLUT_MAX);
+ }
+ 
+-- 
+2.43.0
+

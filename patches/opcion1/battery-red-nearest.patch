@@ -1,0 +1,28 @@
+From 7064813041ab4acc3d965869ddd7203ed417c9af Mon Sep 17 00:00:00 2001
+From: julenvitoria <julenvitoria@hotmail.es>
+Date: Thu, 26 Nov 2026 23:06:04 +0100
+Subject: [PATCH] TEST: last battery bar in nearest-match red in LUT8 (option
+ 1)
+
+---
+ Core/Src/porting/odroid_overlay.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/Core/Src/porting/odroid_overlay.c b/Core/Src/porting/odroid_overlay.c
+index 7d69207..e72fe36 100644
+--- a/Core/Src/porting/odroid_overlay.c
++++ b/Core/Src/porting/odroid_overlay.c
+@@ -340,7 +340,9 @@ void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int
+      * bar. */
+     bool lut8 = lcd_get_mode() == LCD_MODE_LUT8;
+     uint16_t green = lut8 ? C_WHITE : MARIO_BATT_GREEN;
+-    uint16_t critical = lut8 ? curr_colors->sel_c : MARIO_BATT_CRITICAL;
++    /* TEST (option 1): keep the real red in LUT8 and let lcd_pack_color()
++     * pick the nearest palette entry. */
++    uint16_t critical = MARIO_BATT_CRITICAL;
+     uint16_t bar_color = (bars == 1) ? critical : green;
+     const unsigned char IMG_C_OUT[] = {
+         // width8, height:10
+-- 
+2.43.0
+

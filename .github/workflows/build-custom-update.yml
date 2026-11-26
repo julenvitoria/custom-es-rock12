@@ -204,12 +204,22 @@ jobs:
           if ls ../custom/patches/bateria/*.patch >/dev/null 2>&1; then
             variants="$variants reposo_bateria apagado_bateria"
           fi
+          # Temporary colour tests for the battery icon (reposo only).
+          for t in opcion1 opcion2; do
+            if ls ../custom/patches/$t/*.patch >/dev/null 2>&1; then
+              variants="$variants reposo_$t"
+            fi
+          done
           for variant in $variants; do
             echo "::group::Variant $variant"
             git reset -q --hard "$base"
             sets=""
             case "$variant" in
               *bateria*) sets="$sets bateria" ;;
+            esac
+            case "$variant" in
+              *opcion1) sets="$sets bateria opcion1" ;;   # bateria + red nearest-match
+              *opcion2) sets="$sets opcion2" ;;           # self-contained: CLUT slots + diagnostic
             esac
             case "$variant" in
               apagado*) sets="$sets apagado" ;;
