@@ -10,8 +10,10 @@
 #   Core/Src/retro-go/i18n/rg_i18n_es_es.c        (Spanish translation)
 #   Core/Inc/retro-go/fonts/font_cp1252_rock12.h  (rock12 font)
 #
-# Same builder image and feature flags as the official release: SD card,
-# bank 2, lean package (no installer homebrew).
+# Same builder image, feature flags and package contents as the official
+# GitHub release: SD card, bank 2, and the installer homebrew
+# (/homebrews/installer.bin) bundled in. The installer zip URL is read from
+# upstream's flasher-artifacts.yml, so it follows whatever sylverb ships.
 #
 # Runs every day and only builds when there is something new: a new upstream
 # commit, or a new commit in this repo. Each build is published as a GitHub
@@ -133,6 +135,15 @@ jobs:
           set -euo pipefail
           echo "UPSTREAM_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
           echo "UPSTREAM_VERSION=$(git describe --tags --always)" >> "$GITHUB_ENV"
+          # Installer homebrew zip the official release bundles. Taken from
+          # upstream's own workflow so a new installer version is picked up.
+          installer_url=$(sed -n 's/^ *INSTALLER_HOMEBREW_ZIP_URL: *//p' \
+            .github/workflows/flasher-artifacts.yml 2>/dev/null | head -1 | tr -d "\"' " || true)
+          if [ -z "$installer_url" ] || [ ! -f scripts/flasher/bundle_installer_homebrew.py ]; then
+            echo "::warning::Upstream no longer defines the installer homebrew; packages will not include it."
+            installer_url=""
+          fi
+          echo "INSTALLER_URL=$installer_url" >> "$GITHUB_ENV"
           # The font must keep the section marker upstream uses; otherwise the
           # build would not extract it to fonts/cp1252_rock12.bin.
           up_marker=$(grep -o 'FONT_DATA[A-Z0-9_]*' Core/Inc/retro-go/fonts/font_cp1252_rock12.h | head -1)
@@ -162,6 +173,17 @@ jobs:
             "$BUILDER_IMAGE" \
             bash -l -c 'make -j$(nproc) -C external/firmware_update'
 
+      - name: Download installer homebrew
+        if: steps.check.outputs.build == 'true' && env.INSTALLER_URL != ''
+        run: |
+          set -euo pipefail
+          # Fetched once into a staging tree and merged into each variant's
+          # package below, exactly as the official release does.
+          mkdir -p _installer
+          python3 src/scripts/flasher/bundle_installer_homebrew.py \
+            --url "$INSTALLER_URL" --content _installer
+          find _installer -type f -exec ls -l {} \;
+
       - name: Build variants
         if: steps.check.outputs.build == 'true'
         working-directory: src
@@ -183,9 +205,16 @@ jobs:
               bash -l -c "set -e
                 make -j\$(nproc) $FLAGS create_sd_data build/gw_retro_go_intflash.bin" \
               2>&1 | tee "../build-$variant.log"
+            # Package a copy of sd_content with the installer homebrew merged
+            # in, so the build tree itself stays as upstream left it.
+            rm -rf ../_pkg
+            cp -a sd_content ../_pkg
+            if [ -d ../_installer ]; then
+              cp -a ../_installer/. ../_pkg/
+            fi
             python3 scripts/flasher/make_update_package.py \
               --updater external/firmware_update/build/firmware_update.bin \
-              --content sd_content \
+              --content ../_pkg \
               --output "../_out/retro-go_update_$variant.bin"
             # The second variant is an incremental build: the language blob is
             # already up to date and not regenerated, so keep the first stats.
@@ -198,6 +227,7 @@ jobs:
             echo "upstream: ${UPSTREAM_REPO}@${UPSTREAM_SHA} (${UPSTREAM_REF})"
             echo "custom:   ${GITHUB_REPOSITORY}@${GITHUB_SHA::7}"
             echo "flags:    ${FLAGS}"
+            echo "installer: ${INSTALLER_URL:-none}"
           } >> ../_out/version.txt
           cat ../_out/version.txt
           {
