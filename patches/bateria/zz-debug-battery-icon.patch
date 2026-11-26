@@ -1,0 +1,44 @@
+From 26414e137dc6065510edce00de58aae5ef15024f Mon Sep 17 00:00:00 2001
+From: julenvitoria <julenvitoria@hotmail.es>
+Date: Thu, 26 Nov 2026 13:30:06 +0100
+Subject: [PATCH] TEMP: battery icon diagnostic markers (test build only)
+
+---
+ Core/Src/porting/odroid_overlay.c | 21 ++++++++++++++++++++-
+ 1 file changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/Core/Src/porting/odroid_overlay.c b/Core/Src/porting/odroid_overlay.c
+index 55ab83c..bbac822 100644
+--- a/Core/Src/porting/odroid_overlay.c
++++ b/Core/Src/porting/odroid_overlay.c
+@@ -361,7 +361,26 @@ void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int
+ 
+     /* Clear behind the icon so theme bg does not show through the hollow body. */
+     odroid_overlay_draw_fill_rect(x_pos, y_pos, MARIO_BATT_W, MARIO_BATT_H, color_empty);
+-    draw_mario_battery_outline(x_pos, y_pos, C_WHITE);
++
++    /* TEMPORARY DIAGNOSTIC (custom test build only, not for upstream):
++     *  - outline in the theme highlight colour instead of white when the
++     *    state is not discharging/charging/full ("battery missing");
++     *  - white dot left of the icon, top: LCD is in LUT8 (palette) mode;
++     *  - white dot left of the icon, bottom: /CHG (PE7) reads low right now;
++     *  - white dot left of the icon, middle: /PG (PA2) reads low right now. */
++    {
++        bool known = battery_state == ODROID_BATTERY_CHARGE_STATE_DISCHARGING ||
++                     battery_state == ODROID_BATTERY_CHARGE_STATE_CHARGING ||
++                     battery_state == ODROID_BATTERY_CHARGE_STATE_FULL;
++        draw_mario_battery_outline(x_pos, y_pos, known ? C_WHITE : curr_colors->sel_c);
++        odroid_overlay_draw_fill_rect(x_pos - 4, y_pos, 2, MARIO_BATT_H, color_empty);
++        if (lcd_get_mode() == LCD_MODE_LUT8)
++            odroid_overlay_draw_fill_rect(x_pos - 4, y_pos + 1, 2, 2, C_WHITE);
++        if (HAL_GPIO_ReadPin(GPIO_CHARGER_POWERGOOD_GPIO_Port, GPIO_CHARGER_POWERGOOD_Pin) == GPIO_PIN_RESET)
++            odroid_overlay_draw_fill_rect(x_pos - 4, y_pos + 5, 2, 2, C_WHITE);
++        if (HAL_GPIO_ReadPin(GPIO_CHARGER_CHARGING_GPIO_Port, GPIO_CHARGER_CHARGING_Pin) == GPIO_PIN_RESET)
++            odroid_overlay_draw_fill_rect(x_pos - 4, y_pos + 9, 2, 2, C_WHITE);
++    }
+ 
+     switch (battery_state)
+     {
+-- 
+2.43.0
+
