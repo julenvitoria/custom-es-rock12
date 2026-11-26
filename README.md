@@ -9,7 +9,7 @@ y un workflow que compila el `retro-go_update.bin` con ellos.
 | `Core/Src/retro-go/i18n/rg_i18n_es_es.c` | la traducción española |
 | `Core/Inc/retro-go/fonts/font_cp1252_rock12.h` | la fuente rock12 (cp1252) |
 
-## Dos variantes
+## Variantes
 
 Cada compilación genera dos ficheros:
 
@@ -17,6 +17,12 @@ Cada compilación genera dos ficheros:
 |---|---|
 | `retro-go_update_reposo.bin` | Deja la consola en reposo (STOP2), como el firmware original. Despierta al instante. |
 | `retro-go_update_apagado.bin` | Apaga del todo la consola (STANDBY, ~0,01 mA). Antes guarda la partida; al encender arranca desde cero y la recupera. También aplica al reposo por inactividad y al del menú de pausa. |
+
+Mientras haya parches en `patches/bateria/`, se generan además
+`retro-go_update_reposo_bateria.bin` y `retro-go_update_apagado_bateria.bin`:
+las mismas variantes con los arreglos de batería en pruebas, antes de
+enviarlos a sylverb. Cuando sylverb los integre, se borra la carpeta y dejan
+de generarse.
 
 ## Descargar
 
@@ -31,6 +37,8 @@ Los cambios de código que no son archivos enteros van como parches:
 - `patches/*.patch`: se aplican a las **dos** variantes.
 - `patches/apagado/*.patch`: solo a la variante de **apagado**
   (`power-button-standby.patch`).
+- `patches/bateria/*.patch`: solo a las variantes **_bateria** (arreglos en
+  pruebas).
 
 Para quitar un parche, borra su archivo. Para añadir uno, deja un `.patch`
 (formato `git diff`) en la carpeta que corresponda.

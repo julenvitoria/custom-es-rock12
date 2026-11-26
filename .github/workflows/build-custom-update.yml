@@ -1,10 +1,16 @@
 # Builds Retro-Go SD from sylverb's repo (external_cores by default) with this
-# repo's changes on top, in two variants published together:
+# repo's changes on top, in four variants published together:
 #
-#   retro-go_update_reposo.bin   custom files + patches/*.patch
-#                                (power button = normal sleep, STOP2)
-#   retro-go_update_apagado.bin  the above + patches/apagado/*.patch
-#                                (power button = full power-off, STANDBY)
+#   retro-go_update_reposo.bin           custom files + patches/*.patch
+#                                        (power button = normal sleep, STOP2)
+#   retro-go_update_apagado.bin          the above + patches/apagado/*.patch
+#                                        (power button = full power-off, STANDBY)
+#   retro-go_update_reposo_bateria.bin   reposo + patches/bateria/*.patch
+#   retro-go_update_apagado_bateria.bin  apagado + patches/bateria/*.patch
+#                                        (battery fixes under test, not yet
+#                                        sent upstream)
+#
+# The bateria variants are only built while patches/bateria has patches.
 #
 # Custom files copied over upstream:
 #   Core/Src/retro-go/i18n/rg_i18n_es_es.c        (Spanish translation)
@@ -191,14 +197,29 @@ jobs:
           set -euo pipefail
           mkdir -p ../_out
           : > ../_out/version.txt
-          for variant in reposo apagado; do
+          # Every variant starts from the same commit (custom files + common
+          # patches) and adds its own patch sets on top.
+          base=$(git rev-parse HEAD)
+          variants="reposo apagado"
+          if ls ../custom/patches/bateria/*.patch >/dev/null 2>&1; then
+            variants="$variants reposo_bateria apagado_bateria"
+          fi
+          for variant in $variants; do
             echo "::group::Variant $variant"
-            if [ "$variant" = apagado ]; then
-              ../custom/.github/scripts/apply_patches.sh ../custom/patches/apagado
-              if ! git diff --quiet; then
-                git -c user.name="custom-build" -c user.email="custom-build@localhost" \
-                  commit -q -a -m "variant apagado patches"
-              fi
+            git reset -q --hard "$base"
+            sets=""
+            case "$variant" in
+              *bateria*) sets="$sets bateria" ;;
+            esac
+            case "$variant" in
+              apagado*) sets="$sets apagado" ;;
+            esac
+            for set in $sets; do
+              ../custom/.github/scripts/apply_patches.sh "../custom/patches/$set"
+            done
+            if ! git diff --quiet; then
+              git -c user.name="custom-build" -c user.email="custom-build@localhost" \
+                commit -q -a -m "variant $variant patches"
             fi
             docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
               "$BUILDER_IMAGE" \
@@ -216,7 +237,7 @@ jobs:
               --updater external/firmware_update/build/firmware_update.bin \
               --content ../_pkg \
               --output "../_out/retro-go_update_$variant.bin"
-            # The second variant is an incremental build: the language blob is
+            # Later variants are incremental builds: the language blob is
             # already up to date and not regenerated, so keep the first stats.
             stats=$({ grep -A1 'rg_i18n_es_es.c ->' "../build-$variant.log" || true; } | tail -1 | sed 's/^ *//')
             if [ -n "$stats" ]; then es_stats=$stats; fi
@@ -266,6 +287,13 @@ jobs:
             echo "- **\`retro-go_update_apagado.bin\`**: el botón power apaga del todo la consola (STANDBY); al encender recupera la partida."
             list_patches custom/patches
             list_patches custom/patches/apagado
+            if [ -e _out/retro-go_update_reposo_bateria.bin ]; then
+              echo
+              echo "**En pruebas:** las mismas dos variantes con los arreglos de batería que aún no se han enviado a sylverb:"
+              echo
+              echo "- **\`retro-go_update_reposo_bateria.bin\`** y **\`retro-go_update_apagado_bateria.bin\`**"
+              list_patches custom/patches/bateria
+            fi
             echo
             echo "Instalación: descarga la variante que quieras, **renómbrala a \`retro-go_update.bin\`**, cópiala a la raíz de la SD y enciende la consola."
             echo
@@ -273,7 +301,7 @@ jobs:
             cat _out/version.txt
             echo '```'
           } > notes.md
-          files=(_out/retro-go_update_reposo.bin _out/retro-go_update_apagado.bin _out/version.txt)
+          files=(_out/retro-go_update_*.bin _out/version.txt)
           if [ "$EXISTS" = "true" ]; then
             gh release upload "$TAG" "${files[@]}" -R "$GITHUB_REPOSITORY" --clobber
             gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --notes-file notes.md
