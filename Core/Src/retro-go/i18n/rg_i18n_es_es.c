@@ -21,7 +21,7 @@ int es_es_fmt_Time(char *outstr, const char *timefmt, uint16_t hour, uint16_t mi
 const lang_t lang_es_es LANG_DATA = {
     .codepage = 1252,
     .s_LangUI = "Idioma",
-    .s_LangName = "Spanish",
+    .s_LangName = "Español",
 
     // Shared (firmware overlays); core-specific strings are in *_i18n.c
     .s_Reset = "Reset",
