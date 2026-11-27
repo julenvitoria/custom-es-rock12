@@ -231,6 +231,12 @@ jobs:
               git -c user.name="custom-build" -c user.email="custom-build@localhost" \
                 commit -q -a -m "variant $variant patches"
             fi
+            # Full rebuild per variant. The Makefile only includes build/*.d,
+            # but objects (and their .d files) live in build/<dir>/, so a
+            # patch that changes a header does not rebuild the .c files that
+            # include it: an incremental build silently mixes old and new
+            # definitions (seen with LCD_OVERLAY_CLUT_MAX in gw_lcd.h).
+            rm -rf build
             docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
               "$BUILDER_IMAGE" \
               bash -l -c "set -e
