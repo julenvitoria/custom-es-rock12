@@ -187,7 +187,7 @@ const lang_t lang_es_es LANG_DATA = {
     .s_Theme_CoverH = "Imagen Flow H",
     .s_Theme_CoverLightV = "Imagen simple V",
     .s_Theme_CoverLightH = "Imagen simple H",
-    .s_Caching_Game = "Almacenando en Memoria Flash…",
+    .s_Caching_Game = "Almacenando en Memoria Flash...",
     .s_Loading_Banner = "Cargando",
     .s_Pause_Banner = "PAUSA",
     //=====================================================================
