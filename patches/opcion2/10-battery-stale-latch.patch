@@ -1,28 +1,5 @@
-From 2e01b36d882c4d46e25f87e93d30871282232c1b Mon Sep 17 00:00:00 2001
-From: julenvitoria <julenvitoria@hotmail.es>
-Date: Thu, 26 Nov 2026 08:32:35 +0100
-Subject: [PATCH] bq24072: don't keep a stale low level after charging
-
-Two cases left the HUD pinned at the pre-charge level, so a full pack
-showed the low-battery warning and powered off after 5 s until a cold
-boot took a fresh sample:
-
-- Unplug: the forced re-latch 1 s after PGOOD drops ran with allow_rise
-  cleared. If no charge latch was taken while USB was in (charged during
-  STOP2, or already full so /CHG never asserted), the latch still held
-  the pre-charge value and anti-rise kept it. Let that one sample rise.
-
-- Wake from STOP2: sdcard_init() calls bq24072_battery_too_low_for_sd()
-  before bq24072_wake_resample(), so the SD gate judged the pre-sleep
-  latch. Charged while asleep and unplugged before waking, the device
-  powered off with a full battery. Take a fresh sample there when the
-  latch predates the sleep.
----
- Core/Src/bq24072.c | 35 +++++++++++++++++++++++++++++++++++
- 1 file changed, 35 insertions(+)
-
 diff --git a/Core/Src/bq24072.c b/Core/Src/bq24072.c
-index 18b7462..0d8e130 100644
+index 18b7462..4c65887 100644
 --- a/Core/Src/bq24072.c
 +++ b/Core/Src/bq24072.c
 @@ -369,6 +369,13 @@ static bool bq24072_convert_async(uint16_t *out, uint32_t now)
@@ -47,7 +24,28 @@ index 18b7462..0d8e130 100644
      bq24072_data.last.percent = bq24072_level_to_percent(bq24072_data.level);
      bq24072_data.last.state = bq24072_get_state();
      bq24072_remember_first(bq24072_data.value, bq24072_data.level);
-@@ -602,6 +610,7 @@ void bq24072_wake_prepare(void)
+@@ -528,8 +536,20 @@ void bq24072_interrupts_disable(void)
+     HAL_GPIO_DeInit(GPIO_CHARGER_CHARGING_GPIO_Port, GPIO_CHARGER_CHARGING_Pin);
+ }
+ 
++/*
++ * Between USB removal and the forced re-latch (BQ24072_UNPLUG_SETTLE_MS) the
++ * latched level may still be the pre-charge one. Keep reporting the state
++ * shown while plugged until the fresh sample is in, so the HUD does not
++ * flash a stale low level (and the low-battery debounce is not armed by it).
++ */
++static bool bq24072_unplug_pending;
++static bq24072_state_t bq24072_plugged_state = BQ24072_STATE_FULL;
++
+ bq24072_state_t bq24072_get_state(void)
+ {
++    if (bq24072_unplug_pending && !bq24072_data.power_good) {
++        return bq24072_plugged_state;
++    }
+     if (bq24072_data.power_good) {
+         if (bq24072_data.charging) {
+             return BQ24072_STATE_CHARGING;
+@@ -602,6 +622,7 @@ void bq24072_wake_prepare(void)
      bq24072_data.allow_rise = true;
      bq24072_data.have_first = false;
      bq24072_data.peek_count = 0;
@@ -55,7 +53,7 @@ index 18b7462..0d8e130 100644
      bq24072_clear_low_debounce("wake");
      /* ADC2 after STOP2: set up again before the next poll conversion */
      bq24072_async_pending = false;
-@@ -738,6 +747,24 @@ bool bq24072_battery_too_low_for_sd(void)
+@@ -738,6 +759,24 @@ bool bq24072_battery_too_low_for_sd(void)
          return true;
      }
  
@@ -80,7 +78,24 @@ index 18b7462..0d8e130 100644
      bq24072_log_sample("sd_check", bq24072_data.value, bq24072_data.level);
      return bq24072_data.level < BQ24072_RUNTIME_LOW_LEVEL;
  }
-@@ -854,6 +881,14 @@ void bq24072_poll(void)
+@@ -807,12 +846,16 @@ void bq24072_poll(void)
+          */
+         bq24072_data.allow_rise = false;
+         unplug_at_ms = now;
++        bq24072_unplug_pending = true;
+         printf("bq24072: PGOOD deassert — discharge re-latch in %ums\n",
+                (unsigned)BQ24072_UNPLUG_SETTLE_MS);
+     }
+     was_pgood = bq24072_data.power_good;
+ 
+     if (bq24072_data.power_good) {
++        bq24072_unplug_pending = false;
++        bq24072_plugged_state = bq24072_data.charging ? BQ24072_STATE_CHARGING
++                                                      : BQ24072_STATE_FULL;
+         if (!bq24072_data.charging) {
+             /* USB in, charge complete — hold HUD (stock-ish idle-on-adapter). */
+             return;
+@@ -854,9 +897,20 @@ void bq24072_poll(void)
      bq24072_last_info_ms = now;
      if (force_unplug_latch) {
          unplug_at_ms = 0;
@@ -95,6 +110,9 @@ index 18b7462..0d8e130 100644
      }
      bq24072_handle_charging();
      bq24072_sample_filter_latch(sample);
--- 
-2.43.0
-
++    if (force_unplug_latch) {
++        bq24072_unplug_pending = false;
++    }
+     if (bq24072_data.peek_count < 0xffff) {
+         bq24072_data.peek_count++;
+     }
