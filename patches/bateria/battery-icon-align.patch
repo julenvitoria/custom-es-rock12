@@ -1,0 +1,29 @@
+From 22453c5e824ffed42177a05b9f6399ca3be4b551 Mon Sep 17 00:00:00 2001
+From: julenvitoria <julenvitoria@hotmail.es>
+Date: Fri, 27 Nov 2026 06:48:25 +0100
+Subject: [PATCH] gui: centre the header battery icon on the clock
+
+The battery icon is 12 px tall and the clock digits 10, both drawn from
+y=17, so the icon sat 1 px lower. Draw it from y=16.
+---
+ Core/Src/retro-go/gui.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/Core/Src/retro-go/gui.c b/Core/Src/retro-go/gui.c
+index 0882b58..6cfda3e 100644
+--- a/Core/Src/retro-go/gui.c
++++ b/Core/Src/retro-go/gui.c
+@@ -810,7 +810,9 @@ void gui_draw_status(tab_t *tab)
+     odroid_battery_state_t battery_state = odroid_input_read_battery();
+     /* Icon only (no %): blink when stock Mario would warn (bar < 2). */
+     if (!odroid_battery_is_low(battery_state) || odroid_overlay_battery_blink_on())
+-        odroid_overlay_draw_battery(battery_state, ODROID_SCREEN_WIDTH - 28, 17);
++        /* Icon is 12 px tall, clock digits 10: start 1 px higher so
++         * both share the same vertical centre. */
++        odroid_overlay_draw_battery(battery_state, ODROID_SCREEN_WIDTH - 28, 16);
+ 
+     odroid_overlay_clock(ODROID_SCREEN_WIDTH - 74, 17);
+ }
+-- 
+2.43.0
+
