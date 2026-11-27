@@ -33,7 +33,7 @@ const lang_t lang_es_es LANG_DATA = {
     .s_Option_OFF = "\x5",
     .s_Full = "\x7",
     .s_Fill = "\x8",
-    .s_No_Cover = "Sin imagen",
+    .s_No_Cover = "Sin Carátula",
     .s_Yes = "Sí",
     .s_No = "No",
     .s_PlsChose = "Pregunta",
@@ -170,7 +170,7 @@ const lang_t lang_es_es LANG_DATA = {
     .s_Start = "Iniciar",
     .s_Flash_cache_info = "Info caché flash",
     .s_Flash_cache_Off = "No",
-    .s_Flash_cache_Cover_text = "Imagen + texto",
+    .s_Flash_cache_Cover_text = "Carátula + texto",
     .s_Flash_cache_Text_only = "Solo texto",
     .s_Show_FPS = "Mostrar FPS",
 
